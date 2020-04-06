@@ -39,7 +39,9 @@ func main() {
 	}
 
 	// Migrate the schema
-	db.AutoMigrate(&model.AuthUser{})
+	db.AutoMigrate(&model.User{})
+	db.AutoMigrate(&model.Profile{})
+	// db.AutoMigrate(&model.PlayList{})
 
 	e := echo.New()
 	jwtConfig := getJWTConfig([]byte(cfg.Config.SecretKey))
@@ -49,7 +51,10 @@ func main() {
 
 	h := &handler.Handler{DB: db}
 	e.POST("/users", h.UserCreate)
+	e.GET("/users", h.FindUsers)
 	e.POST("/login", h.Login)
+	e.GET("/tracks/:id", h.FindTrack)
+	e.PATCH("/tracks/:id", h.UpdateTrack)
 
 	r := e.Group("/users/*")
 	r.Use(middleware.JWTWithConfig(jwtConfig))

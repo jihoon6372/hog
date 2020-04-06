@@ -8,6 +8,7 @@ import (
 	"github.com/jihoon6372/hog/config"
 	"github.com/jihoon6372/hog/model"
 	"github.com/jihoon6372/hog/utils"
+	"github.com/jinzhu/gorm"
 	"github.com/labstack/echo"
 	"github.com/lib/pq"
 )
@@ -24,7 +25,7 @@ type ResultToken struct {
 
 // Content ...
 type Content struct {
-	Id        uint      `json:"id"`
+	ID        uint      `json:"id"`
 	Username  string    `json:"username"`
 	Email     string    `json:"email"`
 	CreatedAt time.Time `json:"created_at"`
@@ -36,20 +37,22 @@ func (h *Handler) UserRead(c echo.Context) error {
 	claims := user.Claims.(*config.JwtCustomClaims)
 	email := claims.Email
 
-	u := &model.AuthUser{}
-	h.DB.Where(model.AuthUser{Email: email}).Find(&u)
+	u := &model.User{}
+	h.DB.Where(model.User{Email: email}).Find(&u)
+	h.DB.Model(&u).Related(&u.Profile)
 
-	return c.JSON(http.StatusOK, &Content{
-		Id:        u.ID,
-		Email:     u.Email,
-		Username:  u.Username,
-		CreatedAt: u.CreatedAt,
-	})
+	return c.JSON(http.StatusOK, &u)
+	// return c.JSON(http.StatusOK, &Content{
+	// 	ID:        u.ID,
+	// 	Email:     u.Email,
+	// 	Username:  u.Username,
+	// 	CreatedAt: u.CreatedAt,
+	// })
 }
 
 // UserCreate ...
 func (h *Handler) UserCreate(c echo.Context) error {
-	user := &model.AuthUser{}
+	user := &model.User{}
 	email := c.FormValue("email")
 	username := c.FormValue("username")
 	password := c.FormValue("password")
@@ -67,24 +70,36 @@ func (h *Handler) UserCreate(c echo.Context) error {
 	}
 
 	// 비밀번호 암호화
-	hashPassword, _ := utils.HashPassword(password)
+	hashPassword, _ := utils.HashPasswordPbkdf2Sha256(password)
 
 	user.Username = username
 	user.Email = email
 	user.Password = hashPassword
+	user.Profile.Address = "Busan1"
 
-	result := h.DB.Create(&user)
-	if err, ok := result.Error.(*pq.Error); ok && err.Code.Name() == "unique_violation" {
+	result := h.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&user.Profile).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Create(&user).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err, ok := result.(*pq.Error); ok && err.Code.Name() == "unique_violation" {
 		resultError := ResultMessage{Message: "Is Already User"}
 		c.Logger().Error(resultError)
 		return c.JSON(http.StatusBadRequest, resultError)
 	}
 
-	if result.Error != nil {
-		resultError := ResultMessage{Message: "Error"}
-		c.Logger().Error(resultError)
-		return c.JSON(http.StatusBadRequest, resultError)
-	}
+	// if result.Error != nil {
+	// 	resultError := ResultMessage{Message: "Error"}
+	// 	c.Logger().Error(resultError)
+	// 	return c.JSON(http.StatusBadRequest, resultError)
+	// }
 
 	return c.JSON(http.StatusCreated, user)
 }
@@ -98,8 +113,8 @@ func (h *Handler) UserUpdate(c echo.Context) error {
 	password := c.FormValue("password")
 	confirmPassword := c.FormValue("confirm_password")
 
-	user := &model.AuthUser{}
-	h.DB.Where(model.AuthUser{Email: claims.Email}).Find(&user)
+	user := &model.User{}
+	h.DB.Where(model.User{Email: claims.Email}).Find(&user)
 
 	// 이름 변경 요청
 	if username != "" {
@@ -120,7 +135,7 @@ func (h *Handler) UserUpdate(c echo.Context) error {
 	h.DB.Model(&user).Updates(&user)
 
 	return c.JSON(http.StatusOK, &Content{
-		Id:        user.ID,
+		ID:        user.ID,
 		Email:     user.Email,
 		Username:  user.Username,
 		CreatedAt: user.CreatedAt,
@@ -134,12 +149,12 @@ func (h *Handler) UserDelete(c echo.Context) error {
 
 // Login ...
 func (h *Handler) Login(c echo.Context) error {
-	user := &model.AuthUser{}
+	user := &model.User{}
 	email := c.FormValue("email")
 	password := c.FormValue("password")
 
 	// select
-	h.DB.Where(model.AuthUser{Email: email}).Find(&user)
+	h.DB.Where(model.User{Email: email}).Find(&user)
 
 	// password check
 	match := utils.ComparePassword(password, user.Password)
@@ -169,4 +184,15 @@ func (h *Handler) Login(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, ResultToken{Token: t})
+}
+
+// FindUsers ...
+func (h *Handler) FindUsers(c echo.Context) error {
+	users := []model.User{}
+	h.DB.Find(&users)
+	for i := range users {
+		h.DB.Model(users[i]).Related(&users[i].Profile)
+	}
+
+	return c.JSON(http.StatusOK, users)
 }
