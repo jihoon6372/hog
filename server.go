@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/jihoon6372/hog/utils"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/middleware"
 
+	custommiddleware "./middleware"
 	"github.com/jihoon6372/hog/config"
 	"github.com/jihoon6372/hog/handler"
 	"github.com/jihoon6372/hog/model"
@@ -61,6 +63,13 @@ func main() {
 	r.GET("/me", h.UserRead)
 	r.PATCH("/me", h.UserUpdate)
 	// e.DELETE("/user/:id", h.UserDelete)
+
+	m := &custommiddleware.TestMiddleware{}
+	t := e.Group("/tests")
+	t.Use(m)
+	t.GET("", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, nil)
+	})
 
 	e.Logger.Fatal(e.Start(":1323"))
 }
