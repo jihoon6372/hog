@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -195,4 +196,15 @@ func (h *Handler) FindUsers(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, users)
+}
+
+// TestSkipper ...
+func (h *Handler) TestSkipper(c echo.Context) error {
+	requestUser := c.Get("user")
+	if requestUser != nil {
+		token := requestUser.(*jwt.Token)
+		fmt.Println("token", token)
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{})
 }

@@ -16,7 +16,6 @@ import (
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/middleware"
 
-	// custommiddleware "./middleware"
 	"github.com/jihoon6372/hog/config"
 	"github.com/jihoon6372/hog/handler"
 	"github.com/jihoon6372/hog/model"
@@ -28,6 +27,17 @@ func getJWTConfig(secretKey []byte) middleware.JWTConfig {
 	DefaultJWTConfig := middleware.JWTConfig{
 		Claims:     &config.JwtCustomClaims{},
 		SigningKey: secretKey,
+		Skipper: func(c echo.Context) bool {
+			parts := strings.Split("header:"+echo.HeaderAuthorization, ":")
+			auth := c.Request().Header.Get(parts[1])
+			authScheme := "Bearer"
+			l := len(authScheme)
+			if len(auth) > l+1 && auth[:l] == authScheme {
+				return false
+			}
+
+			return true
+		},
 	}
 
 	return DefaultJWTConfig
@@ -63,10 +73,11 @@ func main() {
 	e.GET("/tracks/:id", h.FindTrack)
 	e.PATCH("/tracks/:id", h.UpdateTrack)
 
-	r := e.Group("/users/*")
+	r := e.Group("/users")
 	r.Use(middleware.JWTWithConfig(jwtConfig))
 	r.GET("/me", h.UserRead)
 	r.PATCH("/me", h.UserUpdate)
+	r.GET("/test", h.TestSkipper)
 	// e.DELETE("/user/:id", h.UserDelete)
 
 	// m := &custommiddleware.TestMiddleware{}
@@ -127,29 +138,6 @@ func NewStats() *Stats {
 func (s *Stats) Process(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 
-		parts := strings.Split("header:"+echo.HeaderAuthorization, ":")
-		extractor := jwtFromHeader(parts[1], "JWT")
-		// fmt.Println("extractor", extractor)
-		// token := new(jwt.Token)
-		auth, _ := extractor(c)
-		// token, err = jwt.Parse(auth, func(t *jwt.Token) (interface{}, error) {
-		// 	// Check the signing method
-		// 	if t.Method.Alg() != config.SigningMethod {
-		// 		return nil, fmt.Errorf("unexpected jwt signing method=%v", t.Header["alg"])
-		// 	}
-		// 	if len(config.SigningKeys) > 0 {
-		// 		if kid, ok := t.Header["kid"].(string); ok {
-		// 			if key, ok := config.SigningKeys[kid]; ok {
-		// 				return key, nil
-		// 			}
-		// 		}
-		// 		return nil, fmt.Errorf("unexpected jwt key id=%v", t.Header["kid"])
-		// 	}
-
-		// 	return config.SigningKey, nil
-		// })
-		fmt.Println("token", auth)
-
 		if err := next(c); err != nil {
 			c.Error(err)
 		}
@@ -167,22 +155,4 @@ func (s *Stats) Handle(c echo.Context) error {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 	return c.JSON(http.StatusOK, s)
-}
-
-type jwtExtractor func(echo.Context) (string, error)
-
-var (
-	// ErrJWTMissing ...
-	ErrJWTMissing = echo.NewHTTPError(http.StatusBadRequest, "missing or malformed jwt")
-)
-
-func jwtFromHeader(header string, authScheme string) jwtExtractor {
-	return func(c echo.Context) (string, error) {
-		auth := c.Request().Header.Get(header)
-		l := len(authScheme)
-		if len(auth) > l+1 && auth[:l] == authScheme {
-			return auth[l+1:], nil
-		}
-		return "", ErrJWTMissing
-	}
 }
