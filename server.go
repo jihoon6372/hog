@@ -3,7 +3,12 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 
+	"github.com/dgrijalva/jwt-go"
 	"github.com/jihoon6372/hog/utils"
 
 	"github.com/gorilla/sessions"
@@ -11,7 +16,7 @@ import (
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/middleware"
 
-	custommiddleware "./middleware"
+	// custommiddleware "./middleware"
 	"github.com/jihoon6372/hog/config"
 	"github.com/jihoon6372/hog/handler"
 	"github.com/jihoon6372/hog/model"
@@ -64,12 +69,120 @@ func main() {
 	r.PATCH("/me", h.UserUpdate)
 	// e.DELETE("/user/:id", h.UserDelete)
 
-	m := &custommiddleware.TestMiddleware{}
+	// m := &custommiddleware.TestMiddleware{}
 	t := e.Group("/tests")
-	t.Use(m)
-	t.GET("", func(c echo.Context) error {
-		return c.JSON(http.StatusOK, nil)
+	t.Use(testMiddleware)
+	t.GET("/:id", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"message": "hello world",
+		})
 	})
 
+	s := NewStats()
+	e.Use(s.Process)
+	e.GET("/stats", s.Handle)
+
 	e.Logger.Fatal(e.Start(":1323"))
+}
+
+func testMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+
+		token := new(jwt.Token)
+
+		fmt.Println("token", token)
+
+		// context.WithValue
+		// err := next(c)
+		id := c.Param("id")
+
+		fmt.Println("id", id)
+		if id != "20" {
+			return echo.ErrUnauthorized
+		}
+
+		return next(c)
+	}
+}
+
+type (
+	// Stats ...
+	Stats struct {
+		Uptime       time.Time      `json:"uptime"`
+		RequestCount uint64         `json:"requestCount"`
+		Statuses     map[string]int `json:"statuses"`
+		mutex        sync.RWMutex
+	}
+)
+
+// NewStats ...
+func NewStats() *Stats {
+	return &Stats{
+		Uptime:   time.Now(),
+		Statuses: map[string]int{},
+	}
+}
+
+// Process is the middleware function.
+func (s *Stats) Process(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+
+		parts := strings.Split("header:"+echo.HeaderAuthorization, ":")
+		extractor := jwtFromHeader(parts[1], "JWT")
+		// fmt.Println("extractor", extractor)
+		// token := new(jwt.Token)
+		auth, _ := extractor(c)
+		// token, err = jwt.Parse(auth, func(t *jwt.Token) (interface{}, error) {
+		// 	// Check the signing method
+		// 	if t.Method.Alg() != config.SigningMethod {
+		// 		return nil, fmt.Errorf("unexpected jwt signing method=%v", t.Header["alg"])
+		// 	}
+		// 	if len(config.SigningKeys) > 0 {
+		// 		if kid, ok := t.Header["kid"].(string); ok {
+		// 			if key, ok := config.SigningKeys[kid]; ok {
+		// 				return key, nil
+		// 			}
+		// 		}
+		// 		return nil, fmt.Errorf("unexpected jwt key id=%v", t.Header["kid"])
+		// 	}
+
+		// 	return config.SigningKey, nil
+		// })
+		fmt.Println("token", auth)
+
+		if err := next(c); err != nil {
+			c.Error(err)
+		}
+		s.mutex.Lock()
+		defer s.mutex.Unlock()
+		s.RequestCount++
+		status := strconv.Itoa(c.Response().Status)
+		s.Statuses[status]++
+		return nil
+	}
+}
+
+// Handle is the endpoint to get stats.
+func (s *Stats) Handle(c echo.Context) error {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+	return c.JSON(http.StatusOK, s)
+}
+
+type jwtExtractor func(echo.Context) (string, error)
+
+var (
+	// ErrJWTMissing ...
+	ErrJWTMissing = echo.NewHTTPError(http.StatusBadRequest, "missing or malformed jwt")
+)
+
+func jwtFromHeader(header string, authScheme string) jwtExtractor {
+	return func(c echo.Context) (string, error) {
+		auth := c.Request().Header.Get(header)
+		l := len(authScheme)
+		if len(auth) > l+1 && auth[:l] == authScheme {
+			return auth[l+1:], nil
+		}
+		return "", ErrJWTMissing
+	}
 }
