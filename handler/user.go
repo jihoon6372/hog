@@ -206,5 +206,15 @@ func (h *Handler) TestSkipper(c echo.Context) error {
 		fmt.Println("token", token)
 	}
 
+	testInterface(1, 2, 3)
+
 	return c.JSON(http.StatusOK, map[string]interface{}{})
+}
+
+func testInterface(v ...interface{}) {
+	fmt.Println("interface")
+
+	for _, val := range v {
+		fmt.Println(val)
+	}
 }

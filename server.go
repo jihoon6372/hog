@@ -73,6 +73,9 @@ func main() {
 	e.GET("/tracks/:id", h.FindTrack)
 	e.PATCH("/tracks/:id", h.UpdateTrack)
 
+	// var testA = config.ReadOrAuthenticatedJWTConfig
+	// fmt.Println("testA", testA.SigningKey)
+
 	r := e.Group("/users")
 	r.Use(middleware.JWTWithConfig(jwtConfig))
 	r.GET("/me", h.UserRead)
@@ -92,6 +95,8 @@ func main() {
 	s := NewStats()
 	e.Use(s.Process)
 	e.GET("/stats", s.Handle)
+
+	e.GET("/lists", h.FindListTest)
 
 	e.Logger.Fatal(e.Start(":1323"))
 }
@@ -137,6 +142,7 @@ func NewStats() *Stats {
 // Process is the middleware function.
 func (s *Stats) Process(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
+		c.Set("user", "hello?")
 
 		if err := next(c); err != nil {
 			c.Error(err)
@@ -152,6 +158,8 @@ func (s *Stats) Process(next echo.HandlerFunc) echo.HandlerFunc {
 
 // Handle is the endpoint to get stats.
 func (s *Stats) Handle(c echo.Context) error {
+	user := c.Get("user")
+	fmt.Println("user", user)
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 	return c.JSON(http.StatusOK, s)
